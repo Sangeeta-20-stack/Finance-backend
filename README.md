@@ -109,7 +109,7 @@ server.js
 ### 1. Clone Repository
 
 ```bash
-git clone <your-repo-url>
+git clone <git-repo-url>
 cd <project-folder>
 
 2. Install Dependencies
