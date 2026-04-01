@@ -1,0 +1,28 @@
+openapi: 3.0.0
+info:
+  title: Finance/Records API
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:5000
+
+paths:
+  /api/auth/login:
+    post:
+      summary: Login user
+      responses:
+        200:
+          description: Success
+
+  /api/records:
+    get:
+      summary: Get records (with filters + pagination)
+      responses:
+        200:
+          description: List records
+
+    post:
+      summary: Create record
+      responses:
+        201:
+          description: Created
