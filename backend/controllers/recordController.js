@@ -1,24 +1,18 @@
 import Record from "../models/Record.js";
 
-/* ---------------- PERMISSION HELPERS ---------------- */
-const canCreate = (user) => {
-  return ["viewer", "analyst", "admin"].includes(user.role);
-};
-
-const canReadAll = (user) => {
-  return user.role === "admin" || user.role === "analyst";
-};
-
-const canModify = (user, record) => {
-  if (user.role === "admin") return true;
-  return record.createdBy.toString() === user._id.toString();
-};
+/* ─────────────────────────────────────────
+   ROLE RULES (single source of truth)
+   viewer  → read own records only, NO create / update / delete
+   analyst → read ALL records, create own, update own, NO delete
+   admin   → full access on everything
+───────────────────────────────────────── */
 
 /* ---------------- CREATE RECORD ---------------- */
 export const createRecord = async (req, res) => {
   try {
-    if (!canCreate(req.user)) {
-      return res.status(403).json({ message: "Not allowed to create records" });
+    // viewer cannot create
+    if (req.user.role === "viewer") {
+      return res.status(403).json({ message: "Viewers cannot create records" });
     }
 
     const { title, amount, type, category, note, date } = req.body;
@@ -43,7 +37,7 @@ export const createRecord = async (req, res) => {
   }
 };
 
-/* ---------------- GET RECORDS ---------------- */
+/* ---------------- GET ALL RECORDS ---------------- */
 export const getRecords = async (req, res) => {
   try {
     const {
@@ -56,16 +50,13 @@ export const getRecords = async (req, res) => {
       q,
     } = req.query;
 
-    let filter = {
-      isDeleted: false,
-    };
+    let filter = { isDeleted: false };
 
-    /* role-based access */
-    if (!canReadAll(req.user)) {
-      filter.createdBy = req.user._id; // viewer only sees own records
+    // viewer sees only their own records; analyst + admin see all
+    if (req.user.role === "viewer") {
+      filter.createdBy = req.user._id;
     }
 
-    /* filters */
     if (startDate && endDate) {
       filter.date = {
         $gte: new Date(startDate),
@@ -76,11 +67,9 @@ export const getRecords = async (req, res) => {
     if (type) filter.type = type;
     if (category) filter.category = category;
 
-    /* search */
     if (q) {
       const escapedQ = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const searchRegex = new RegExp(escapedQ, "i");
-
       filter.$or = [
         { title: searchRegex },
         { note: searchRegex },
@@ -90,7 +79,6 @@ export const getRecords = async (req, res) => {
 
     const pageNumber = parseInt(page);
     const pageSize = parseInt(limit);
-
     const total = await Record.countDocuments(filter);
 
     const records = await Record.find(filter)
@@ -109,7 +97,7 @@ export const getRecords = async (req, res) => {
   }
 };
 
-/* ---------------- GET BY ID ---------------- */
+/* ---------------- GET RECORD BY ID ---------------- */
 export const getRecordById = async (req, res) => {
   try {
     const record = await Record.findOne({
@@ -121,17 +109,22 @@ export const getRecordById = async (req, res) => {
       return res.status(404).json({ message: "Record not found" });
     }
 
-    if (!canModify(req.user, record)) {
+    // viewer can only view their own records
+    if (
+      req.user.role === "viewer" &&
+      record.createdBy.toString() !== req.user._id.toString()
+    ) {
       return res.status(403).json({ message: "Access denied" });
     }
 
+    // analyst + admin can view any record
     res.json(record);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-/* ---------------- UPDATE ---------------- */
+/* ---------------- UPDATE RECORD ---------------- */
 export const updateRecord = async (req, res) => {
   try {
     const record = await Record.findOne({
@@ -143,8 +136,14 @@ export const updateRecord = async (req, res) => {
       return res.status(404).json({ message: "Record not found" });
     }
 
-    if (!canModify(req.user, record)) {
-      return res.status(403).json({ message: "Access denied" });
+    // admin can update any record
+    // analyst can only update records they created
+    if (req.user.role === "analyst") {
+      if (record.createdBy.toString() !== req.user._id.toString()) {
+        return res
+          .status(403)
+          .json({ message: "Analysts can only update their own records" });
+      }
     }
 
     const updated = await Record.findByIdAndUpdate(
@@ -153,31 +152,30 @@ export const updateRecord = async (req, res) => {
       { new: true }
     );
 
-    res.json({
-      message: "Record updated",
-      updated,
-    });
+    res.json({ message: "Record updated", updated });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-/* ---------------- DELETE (SOFT) ---------------- */
+/* ---------------- DELETE RECORD (SOFT) ---------------- */
 export const deleteRecord = async (req, res) => {
   try {
+    // only admin can delete
+    if (req.user.role !== "admin") {
+      return res
+        .status(403)
+        .json({ message: "Only admins can delete records" });
+    }
+
     const record = await Record.findById(req.params.id);
 
     if (!record || record.isDeleted) {
       return res.status(404).json({ message: "Record not found" });
     }
 
-    if (!canModify(req.user, record)) {
-      return res.status(403).json({ message: "Access denied" });
-    }
-
     record.isDeleted = true;
     record.deletedAt = new Date();
-
     await record.save();
 
     res.json({ message: "Record moved to trash" });

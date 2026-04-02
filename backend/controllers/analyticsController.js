@@ -1,15 +1,23 @@
 import Record from "../models/Record.js";
 
-//get summary of finance 
+/* ─────────────────────────────────────────
+   ROLE RULES FOR ANALYTICS
+   viewer  → sees only their own data
+   analyst → sees ALL records data
+   admin   → sees ALL records data
+───────────────────────────────────────── */
 
+const buildFilter = (user) => {
+  if (user.role === "viewer") {
+    return { createdBy: user._id, isDeleted: false };
+  }
+  return { isDeleted: false }; // analyst + admin see everything
+};
+
+/* ---------------- SUMMARY ---------------- */
 export const getSummary = async (req, res) => {
   try {
-    let filter = {};
-
-    if (req.user.role !== "admin") {
-      filter.createdBy = req.user._id;
-    }
-
+    const filter = buildFilter(req.user);
     const records = await Record.find(filter);
 
     let income = 0;
@@ -30,25 +38,20 @@ export const getSummary = async (req, res) => {
   }
 };
 
-//get category breakdown
-
+/* ---------------- CATEGORY BREAKDOWN ---------------- */
 export const getCategoryBreakdown = async (req, res) => {
   try {
-    let filter = {};
-
-    if (req.user.role !== "admin") {
-      filter.createdBy = req.user._id;
-    }
-
+    const filter = buildFilter(req.user);
     const records = await Record.find(filter);
 
     const map = {};
 
     records.forEach((r) => {
       if (!map[r.category]) {
-        map[r.category] = 0;
+        map[r.category] = { income: 0, expense: 0 };
       }
-      map[r.category] += r.amount;
+      if (r.type === "income") map[r.category].income += r.amount;
+      else map[r.category].expense += r.amount;
     });
 
     res.json(map);
@@ -57,17 +60,12 @@ export const getCategoryBreakdown = async (req, res) => {
   }
 };
 
-//get monthly trends
-
+/* ---------------- MONTHLY TRENDS ---------------- */
 export const getMonthlyTrends = async (req, res) => {
   try {
-    let matchStage = {};
+    const matchStage = buildFilter(req.user);
 
-    // role-based filtering
-    if (req.user.role !== "admin") {
-      matchStage.createdBy = req.user._id;
-    }
-
+    // convert createdBy ObjectId for aggregation if present
     const data = await Record.aggregate([
       { $match: matchStage },
 
@@ -108,15 +106,33 @@ export const getMonthlyTrends = async (req, res) => {
           month: "$_id.month",
           income: 1,
           expense: 1,
+          net: { $subtract: ["$income", "$expense"] },
         },
       },
 
-      {
-        $sort: { year: 1, month: 1 },
-      },
+      { $sort: { year: 1, month: 1 } },
     ]);
 
     res.json(data);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+/* ---------------- RECENT ACTIVITY ---------------- */
+export const getRecentActivity = async (req, res) => {
+  try {
+    const filter = buildFilter(req.user);
+
+    const records = await Record.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .populate("createdBy", "name email");
+
+    res.json({
+      count: records.length,
+      records,
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

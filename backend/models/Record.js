@@ -34,24 +34,22 @@ const recordSchema = new mongoose.Schema(
       default: Date.now,
     },
 
+    // single definition of createdBy (was duplicated before)
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
     },
+
     isDeleted: {
-  type: Boolean,
-  default: false,
-},
-deletedAt: {
-  type: Date,
-  default: null,
-},
-createdBy: {
-  type: mongoose.Schema.Types.ObjectId,
-  ref: "User",
-  required: true,
-}
+      type: Boolean,
+      default: false,
+    },
+
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
   },
   { timestamps: true }
 );

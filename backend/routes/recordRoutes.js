@@ -13,44 +13,45 @@ import { authorizeRoles, protect } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
+/* ─────────────────────────────────────────
+   ROLE RULES ENFORCED AT ROUTE LEVEL
+   GET    /        → viewer, analyst, admin  (controller filters viewer to own records)
+   GET    /:id     → viewer, analyst, admin  (controller filters viewer to own records)
+   POST   /        → analyst, admin only     (viewer cannot create)
+   PUT    /:id     → analyst, admin only     (controller limits analyst to own records)
+   DELETE /:id     → admin only
+───────────────────────────────────────── */
+
 /* ---------------- CREATE RECORD ---------------- */
 router.post(
   "/",
   protect,
-  authorizeRoles("viewer", "analyst", "admin"),
-
+  authorizeRoles("analyst", "admin"),
   [
     body("title")
       .trim()
-      .notEmpty()
-      .withMessage("Title is required")
+      .notEmpty().withMessage("Title is required")
       .isLength({ min: 2, max: 100 }),
 
     body("amount")
-      .notEmpty()
-      .withMessage("Amount is required")
-      .isNumeric()
-      .withMessage("Amount must be a number"),
+      .notEmpty().withMessage("Amount is required")
+      .isNumeric().withMessage("Amount must be a number"),
 
     body("type")
-      .notEmpty()
-      .withMessage("Type is required")
-      .isIn(["income", "expense"]),
+      .notEmpty().withMessage("Type is required")
+      .isIn(["income", "expense"]).withMessage("Type must be income or expense"),
 
     body("category")
       .trim()
-      .notEmpty()
-      .withMessage("Category is required"),
+      .notEmpty().withMessage("Category is required"),
 
     body("note").optional().isLength({ max: 300 }),
 
     body("date")
-      .notEmpty()
-      .withMessage("Date is required")
-      .isISO8601()
+      .notEmpty().withMessage("Date is required")
+      .isISO8601().withMessage("Date must be a valid ISO 8601 date")
       .toDate(),
   ],
-
   validate,
   createRecord
 );
@@ -59,7 +60,7 @@ router.post(
 router.get(
   "/",
   protect,
-
+  authorizeRoles("viewer", "analyst", "admin"),
   [
     query("page").optional().isInt({ min: 1 }),
     query("limit").optional().isInt({ min: 1, max: 100 }),
@@ -68,7 +69,6 @@ router.get(
     query("endDate").optional().isISO8601(),
     query("q").optional().isString(),
   ],
-
   validate,
   getRecords
 );
@@ -77,60 +77,36 @@ router.get(
 router.get(
   "/:id",
   protect,
-
+  authorizeRoles("viewer", "analyst", "admin"),
   [param("id").isMongoId().withMessage("Invalid record ID")],
-
   validate,
   getRecordById
 );
 
 /* ---------------- UPDATE RECORD ---------------- */
-/*
-RULE:
-- viewer ❌ cannot update
-- analyst + admin ✔ can update
-- controller still checks ownership/admin override
-*/
 router.put(
   "/:id",
   protect,
   authorizeRoles("analyst", "admin"),
-
   [
     param("id").isMongoId().withMessage("Invalid record ID"),
-
     body("title").optional().trim().isLength({ min: 2, max: 100 }),
-
     body("amount").optional().isNumeric(),
-
     body("type").optional().isIn(["income", "expense"]),
-
     body("category").optional().trim(),
-
     body("note").optional().isLength({ max: 300 }),
-
     body("date").optional().isISO8601().toDate(),
   ],
-
   validate,
   updateRecord
 );
 
 /* ---------------- DELETE RECORD ---------------- */
-/*
-RULE:
-- admin ✔ can delete any record
-- analyst ❌
-- viewer ❌
-BUT controller already allows OWNER delete → so we must fix consistency
-*/
 router.delete(
   "/:id",
   protect,
-  authorizeRoles("viewer", "analyst", "admin"),
-
+  authorizeRoles("admin"),
   [param("id").isMongoId().withMessage("Invalid record ID")],
-
   validate,
   deleteRecord
 );

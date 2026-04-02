@@ -1,28 +1,783 @@
 openapi: 3.0.0
 info:
-  title: Finance/Records API
+  title: Finance Data Processing and Access Control API
   version: 1.0.0
+  description: |
+    Backend API for a finance dashboard system with role-based access control.
+
+    ## Roles
+    | Role     | Permissions |
+    |----------|-------------|
+    | `viewer`  | Read own records, view own summary & recent activity |
+    | `analyst` | Read all records, create/update own records, full analytics |
+    | `admin`   | Full access — manage users, all records, all analytics |
+
+    ## Authentication
+    All protected routes require a Bearer token in the Authorization header:
+    ```
+    Authorization: Bearer <your_jwt_token>
+    ```
+    Obtain a token via `POST /api/auth/login`.
 
 servers:
   - url: http://localhost:5000
+    description: Local development server
 
+tags:
+  - name: Auth
+    description: Register and login
+  - name: Users
+    description: User management (Admin only)
+  - name: Records
+    description: Financial records CRUD
+  - name: Analytics
+    description: Dashboard summary and insights
+
+# ─────────────────────────────────────────────────────────────
+# SECURITY SCHEME
+# ─────────────────────────────────────────────────────────────
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    # ── USER ──
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "64f1a2b3c4d5e6f7a8b9c0d1"
+        name:
+          type: string
+          example: "Sangeeta Kundu"
+        email:
+          type: string
+          example: "sangeeta@example.com"
+        role:
+          type: string
+          enum: [viewer, analyst, admin]
+          example: "analyst"
+        isActive:
+          type: boolean
+          example: true
+        createdAt:
+          type: string
+          format: date-time
+
+    # ── RECORD ──
+    Record:
+      type: object
+      properties:
+        _id:
+          type: string
+          example: "64f1a2b3c4d5e6f7a8b9c0d2"
+        title:
+          type: string
+          example: "Office Supplies"
+        amount:
+          type: number
+          example: 1500.00
+        type:
+          type: string
+          enum: [income, expense]
+          example: "expense"
+        category:
+          type: string
+          example: "Operations"
+        note:
+          type: string
+          example: "Bought printer paper and pens"
+        date:
+          type: string
+          format: date-time
+          example: "2026-03-15T00:00:00.000Z"
+        createdBy:
+          type: string
+          example: "64f1a2b3c4d5e6f7a8b9c0d1"
+        isDeleted:
+          type: boolean
+          example: false
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    # ── ERROR ──
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+          example: "Error description here"
+
+    # ── VALIDATION ERROR ──
+    ValidationError:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "Validation failed"
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              msg:
+                type: string
+              param:
+                type: string
+              location:
+                type: string
+
+# ─────────────────────────────────────────────────────────────
+# PATHS
+# ─────────────────────────────────────────────────────────────
 paths:
+  # ════════════════════════════════
+  # AUTH
+  # ════════════════════════════════
+
+  /api/auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new user
+      description: |
+        Creates a new user. Default role is `viewer`.
+        To create an `admin`, pass `role: "admin"` and the correct `adminSecret`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password]
+              properties:
+                name:
+                  type: string
+                  example: "Sangeeta Kundu"
+                email:
+                  type: string
+                  example: "sangeeta@example.com"
+                password:
+                  type: string
+                  minLength: 6
+                  example: "secret123"
+                role:
+                  type: string
+                  enum: [viewer, analyst, admin]
+                  example: "analyst"
+                adminSecret:
+                  type: string
+                  description: Required only when role is admin
+                  example: "supersecret"
+      responses:
+        "201":
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "User created successfully"
+                  data:
+                    $ref: "#/components/schemas/User"
+                  token:
+                    type: string
+                    example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        "400":
+          description: User already exists or validation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Invalid admin secret
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /api/auth/login:
     post:
-      summary: Login user
+      tags: [Auth]
+      summary: Login and get JWT token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  example: "sangeeta@example.com"
+                password:
+                  type: string
+                  example: "secret123"
       responses:
-        200:
-          description: Success
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Login successful"
+                  data:
+                    $ref: "#/components/schemas/User"
+                  token:
+                    type: string
+                    example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Account is deactivated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ════════════════════════════════
+  # USERS (Admin only)
+  # ════════════════════════════════
+
+  /api/users:
+    get:
+      tags: [Users]
+      summary: Get all users
+      description: Returns all users. **Admin only.**
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                    example: 5
+                  users:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/User"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Not authorized (not admin)
+
+  /api/users/{id}:
+    get:
+      tags: [Users]
+      summary: Get a single user by ID
+      description: Returns one user's details. **Admin only.**
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "64f1a2b3c4d5e6f7a8b9c0d1"
+      responses:
+        "200":
+          description: User details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "404":
+          description: User not found
+        "403":
+          description: Not authorized
+
+  /api/users/{id}/role:
+    put:
+      tags: [Users]
+      summary: Update a user's role
+      description: Changes the role of a user. **Admin only.** Admins cannot change their own role.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "64f1a2b3c4d5e6f7a8b9c0d1"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role:
+                  type: string
+                  enum: [viewer, analyst, admin]
+                  example: "analyst"
+      responses:
+        "200":
+          description: Role updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "User role updated"
+                  user:
+                    $ref: "#/components/schemas/User"
+        "400":
+          description: Invalid role or self-demotion attempt
+        "404":
+          description: User not found
+
+  /api/users/{id}/status:
+    put:
+      tags: [Users]
+      summary: Activate or deactivate a user
+      description: Toggles user active status. **Admin only.** Admins cannot deactivate themselves.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "64f1a2b3c4d5e6f7a8b9c0d1"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [isActive]
+              properties:
+                isActive:
+                  type: boolean
+                  example: false
+      responses:
+        "200":
+          description: Status updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "User deactivated successfully"
+                  user:
+                    $ref: "#/components/schemas/User"
+        "400":
+          description: Invalid value or self-deactivation attempt
+        "404":
+          description: User not found
+
+  # ════════════════════════════════
+  # RECORDS
+  # ════════════════════════════════
 
   /api/records:
     get:
-      summary: Get records (with filters + pagination)
+      tags: [Records]
+      summary: Get all records (with filters and pagination)
+      description: |
+        - **viewer** — returns only their own records
+        - **analyst / admin** — returns all records
+
+        Supports filtering by type, category, date range, and text search.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [income, expense]
+          example: "expense"
+        - name: category
+          in: query
+          schema:
+            type: string
+          example: "Operations"
+        - name: startDate
+          in: query
+          schema:
+            type: string
+            format: date
+          example: "2026-01-01"
+        - name: endDate
+          in: query
+          schema:
+            type: string
+            format: date
+          example: "2026-03-31"
+        - name: q
+          in: query
+          description: Search by title, note, or category
+          schema:
+            type: string
+          example: "printer"
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          example: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+          example: 10
       responses:
-        200:
-          description: List records
+        "200":
+          description: Paginated list of records
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  totalRecords:
+                    type: integer
+                    example: 42
+                  currentPage:
+                    type: integer
+                    example: 1
+                  totalPages:
+                    type: integer
+                    example: 5
+                  records:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Record"
+        "401":
+          description: Not authenticated
 
     post:
-      summary: Create record
+      tags: [Records]
+      summary: Create a new financial record
+      description: |
+        Creates a new record. **Analyst and Admin only.**
+        The record is automatically linked to the logged-in user.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, amount, type, category, date]
+              properties:
+                title:
+                  type: string
+                  example: "Monthly Rent"
+                amount:
+                  type: number
+                  example: 25000
+                type:
+                  type: string
+                  enum: [income, expense]
+                  example: "expense"
+                category:
+                  type: string
+                  example: "Rent"
+                note:
+                  type: string
+                  example: "March 2026 office rent"
+                date:
+                  type: string
+                  format: date
+                  example: "2026-03-01"
       responses:
-        201:
-          description: Created
+        "201":
+          description: Record created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Record created"
+                  record:
+                    $ref: "#/components/schemas/Record"
+        "400":
+          description: Validation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "403":
+          description: Viewers cannot create records
+
+  /api/records/{id}:
+    get:
+      tags: [Records]
+      summary: Get a single record by ID
+      description: |
+        - **viewer** — can only fetch their own records
+        - **analyst / admin** — can fetch any record
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "64f1a2b3c4d5e6f7a8b9c0d2"
+      responses:
+        "200":
+          description: Record details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Record"
+        "403":
+          description: Access denied
+        "404":
+          description: Record not found
+
+    put:
+      tags: [Records]
+      summary: Update a record
+      description: |
+        - **analyst** — can only update records they created
+        - **admin** — can update any record
+        - **viewer** — not allowed
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "64f1a2b3c4d5e6f7a8b9c0d2"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                  example: "Updated Title"
+                amount:
+                  type: number
+                  example: 3000
+                type:
+                  type: string
+                  enum: [income, expense]
+                category:
+                  type: string
+                  example: "Marketing"
+                note:
+                  type: string
+                date:
+                  type: string
+                  format: date
+      responses:
+        "200":
+          description: Record updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Record updated"
+                  updated:
+                    $ref: "#/components/schemas/Record"
+        "403":
+          description: Access denied
+        "404":
+          description: Record not found
+
+    delete:
+      tags: [Records]
+      summary: Soft delete a record
+      description: |
+        Marks a record as deleted (soft delete). **Admin only.**
+        The record is not permanently removed — it sets `isDeleted: true` and records `deletedAt`.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "64f1a2b3c4d5e6f7a8b9c0d2"
+      responses:
+        "200":
+          description: Record moved to trash
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Record moved to trash"
+        "403":
+          description: Only admins can delete records
+        "404":
+          description: Record not found
+
+  # ════════════════════════════════
+  # ANALYTICS
+  # ════════════════════════════════
+
+  /api/analytics/summary:
+    get:
+      tags: [Analytics]
+      summary: Get financial summary
+      description: |
+        Returns total income, total expense, and net balance.
+        - **viewer** — own data only
+        - **analyst / admin** — all data
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Financial summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  totalIncome:
+                    type: number
+                    example: 150000
+                  totalExpense:
+                    type: number
+                    example: 87000
+                  balance:
+                    type: number
+                    example: 63000
+
+  /api/analytics/recent:
+    get:
+      tags: [Analytics]
+      summary: Get recent activity
+      description: |
+        Returns the last 10 financial records sorted by creation date.
+        - **viewer** — own records only
+        - **analyst / admin** — all records
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Recent records
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                    example: 10
+                  records:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Record"
+
+  /api/analytics/category:
+    get:
+      tags: [Analytics]
+      summary: Get category-wise breakdown
+      description: |
+        Returns total income and expense grouped by category.
+        **Analyst and Admin only.**
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Category breakdown
+          content:
+            application/json:
+              example:
+                Rent:
+                  income: 0
+                  expense: 25000
+                Salary:
+                  income: 80000
+                  expense: 0
+                Marketing:
+                  income: 0
+                  expense: 12000
+
+  /api/analytics/monthly:
+    get:
+      tags: [Analytics]
+      summary: Get monthly income and expense trends
+      description: |
+        Returns monthly aggregated income, expense, and net for each month.
+        **Analyst and Admin only.**
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Monthly trends
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    year:
+                      type: integer
+                      example: 2026
+                    month:
+                      type: integer
+                      example: 3
+                    income:
+                      type: number
+                      example: 50000
+                    expense:
+                      type: number
+                      example: 30000
+                    net:
+                      type: number
+                      example: 20000
